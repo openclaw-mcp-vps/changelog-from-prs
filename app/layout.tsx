@@ -1,65 +1,51 @@
-import type { Metadata, Viewport } from "next";
-import type { ReactNode } from "react";
-import { IBM_Plex_Sans, Space_Grotesk } from "next/font/google";
-import Script from "next/script";
-import "./globals.css";
+import type { Metadata } from "next";
+import { Space_Grotesk, JetBrains_Mono } from "next/font/google";
+
+import "@/app/globals.css";
 
 const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
-  variable: "--font-heading",
-  display: "swap"
+  variable: "--font-space-grotesk"
 });
 
-const ibmPlexSans = IBM_Plex_Sans({
+const jetBrainsMono = JetBrains_Mono({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-body",
-  display: "swap"
+  variable: "--font-jetbrains-mono"
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://changelog-from-prs.com"),
-  title: "Changelog from PRs",
+  metadataBase: new URL("https://changelog-from-prs.app"),
+  title: "Changelog from PRs | Release notes from any Git history",
   description:
-    "Generate polished, customer-facing release notes from any GitHub history. Connect a repo, pick tags, and ship changelogs in minutes.",
-  keywords: [
-    "release notes",
-    "changelog generator",
-    "github pr changelog",
-    "open source maintenance",
-    "release tooling"
-  ],
+    "Paste a GitHub repo and tag range to generate user-facing release notes grouped by Features, Fixes, and Breaking Changes.",
+  keywords: ["release notes", "github", "changelog", "open source", "automation"],
   openGraph: {
     title: "Changelog from PRs",
     description:
-      "Turn messy PR history into clean release notes grouped by Features, Fixes, and Breaking Changes.",
-    type: "website",
-    url: "https://changelog-from-prs.com",
-    siteName: "Changelog from PRs"
+      "Generate release notes for humans from any GitHub tag range. No PR title conventions required.",
+    url: "https://changelog-from-prs.app",
+    siteName: "Changelog from PRs",
+    type: "website"
   },
   twitter: {
     card: "summary_large_image",
     title: "Changelog from PRs",
-    description:
-      "Paste a repo and tag range, then generate release notes your users can actually understand."
+    description: "Generate release notes for humans from tag ranges, not commit conventions."
   },
-  alternates: {
-    canonical: "/"
+  robots: {
+    index: true,
+    follow: true
   }
 };
 
-export const viewport: Viewport = {
-  themeColor: "#0d1117",
-  colorScheme: "dark",
-  width: "device-width",
-  initialScale: 1
-};
-
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default function RootLayout({
+  children
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={`${spaceGrotesk.variable} ${ibmPlexSans.variable} antialiased`}>
-        <Script src="https://app.lemonsqueezy.com/js/lemon.js" strategy="afterInteractive" />
+    <html lang="en" className="dark">
+      <body className={`${spaceGrotesk.variable} ${jetBrainsMono.variable} font-[family-name:var(--font-space-grotesk)] antialiased`}>
         {children}
       </body>
     </html>

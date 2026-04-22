@@ -1,143 +1,127 @@
 import OpenAI from "openai";
-import type { TagRangeData } from "@/lib/github";
+import type { GitRangeData } from "@/lib/github";
 
-interface ChangelogResult {
-  markdown: string;
-  model: string;
-}
+const MODEL = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
 
-function trimForPrompt(value: string, maxLen: number) {
-  if (value.length <= maxLen) {
-    return value;
+type CategorizedSection = "Features" | "Fixes" | "Breaking Changes";
+
+function inferSection(text: string): CategorizedSection {
+  const lower = text.toLowerCase();
+
+  if (
+    lower.includes("break") ||
+    lower.includes("deprecat") ||
+    lower.includes("remove") ||
+    lower.includes("rename") ||
+    lower.includes("migration")
+  ) {
+    return "Breaking Changes";
   }
 
-  return `${value.slice(0, maxLen - 3)}...`;
+  if (
+    lower.includes("fix") ||
+    lower.includes("bug") ||
+    lower.includes("patch") ||
+    lower.includes("hotfix") ||
+    lower.includes("error")
+  ) {
+    return "Fixes";
+  }
+
+  return "Features";
 }
 
-function fallbackChangelog(data: TagRangeData): ChangelogResult {
-  const breaking: string[] = [];
+function fallbackReleaseNotes(data: GitRangeData) {
   const features: string[] = [];
   const fixes: string[] = [];
+  const breaking: string[] = [];
 
-  for (const pr of data.pullRequests) {
-    const text = `${pr.title} ${pr.body}`.toLowerCase();
-    const line = `- ${pr.title} ([#${pr.number}](${pr.htmlUrl}))`;
+  for (const pr of data.pulls) {
+    const sentence = `${pr.title} ([#${pr.number}](${pr.url}))`;
+    const section = inferSection(`${pr.title}\n${pr.body}\n${pr.labels.join(" ")}`);
 
-    if (text.includes("breaking") || text.includes("deprecat") || text.includes("migration")) {
-      breaking.push(line);
-    } else if (text.includes("fix") || text.includes("bug") || text.includes("regression")) {
-      fixes.push(line);
-    } else {
-      features.push(line);
+    if (section === "Breaking Changes") {
+      breaking.push(sentence);
+      continue;
     }
+
+    if (section === "Fixes") {
+      fixes.push(sentence);
+      continue;
+    }
+
+    features.push(sentence);
   }
 
-  const commitOnly = data.commits.filter((commit) => !commit.associatedPrNumber).slice(0, 12);
-  const commitLines = commitOnly.map((commit) => `- ${commit.message} ([${commit.shortSha}](${commit.htmlUrl}))`);
+  for (const commit of data.commits) {
+    const subjectLine = commit.message.split("\n")[0];
+    const sentence = `${subjectLine} ([${commit.sha.slice(0, 7)}](${commit.url}))`;
+    const section = inferSection(subjectLine);
 
-  const markdown = [
-    `# ${data.repository} Release ${data.toTag}`,
-    "",
-    `Compared with **${data.fromTag}**. This release includes ${data.pullRequests.length} pull requests and ${data.commits.length} commits.`,
-    "",
-    "## Breaking Changes",
-    breaking.length ? breaking.join("\n") : "- No breaking changes were identified.",
-    "",
-    "## Features",
-    features.length ? features.join("\n") : "- No new end-user features were identified.",
-    "",
-    "## Fixes",
-    fixes.length ? fixes.join("\n") : "- No user-facing fixes were identified.",
-    "",
-    "## Additional Changes",
-    commitLines.length ? commitLines.join("\n") : "- Additional commit-level changes are included with no direct PR mapping.",
-    "",
-    `Full comparison: ${data.compareUrl}`
-  ].join("\n");
+    if (section === "Breaking Changes") {
+      breaking.push(sentence);
+      continue;
+    }
 
-  return {
-    markdown,
-    model: "fallback-rules"
-  };
+    if (section === "Fixes") {
+      fixes.push(sentence);
+      continue;
+    }
+
+    features.push(sentence);
+  }
+
+  const toBullets = (items: string[]) => (items.length > 0 ? items.map((item) => `- ${item}`).join("\n") : "- No notable changes.");
+
+  return `# Release Notes\n\n**Repository:** ${data.repoFullName}  \n**Range:** ${data.baseTag} → ${data.headTag}\n\n## Features\n${toBullets(features)}\n\n## Fixes\n${toBullets(fixes)}\n\n## Breaking Changes\n${toBullets(breaking)}\n\n## Rollout Notes\n- Review breaking changes before deploying to production.\n- Validate critical workflows in staging before publishing this release.`;
 }
 
-export async function generateChangelogWithAI(data: TagRangeData): Promise<ChangelogResult> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  const model = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
-
-  if (!apiKey) {
-    return fallbackChangelog(data);
+export async function generateReleaseNotes(data: GitRangeData) {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) {
+    return fallbackReleaseNotes(data);
   }
 
-  const openai = new OpenAI({ apiKey });
+  const client = new OpenAI({ apiKey: key });
 
-  const compactInput = {
-    repository: data.repository,
-    fromTag: data.fromTag,
-    toTag: data.toTag,
-    compareUrl: data.compareUrl,
-    pullRequests: data.pullRequests.map((pr) => ({
+  const inputPayload = {
+    repo: data.repoFullName,
+    range: `${data.baseTag}...${data.headTag}`,
+    pullRequests: data.pulls.map((pr) => ({
       number: pr.number,
-      title: trimForPrompt(pr.title, 180),
-      body: trimForPrompt(pr.body || "", 800),
+      title: pr.title,
+      body: pr.body,
       labels: pr.labels,
-      url: pr.htmlUrl,
-      mergedAt: pr.mergedAt,
       author: pr.author
     })),
-    commits: data.commits.slice(0, 250).map((commit) => ({
-      shortSha: commit.shortSha,
-      message: trimForPrompt(commit.message, 180),
-      author: commit.author,
-      associatedPrNumber: commit.associatedPrNumber,
-      url: commit.htmlUrl
+    directCommits: data.commits.map((commit) => ({
+      sha: commit.sha,
+      message: commit.message,
+      author: commit.author
     }))
   };
 
-  const systemPrompt =
-    "You are a release manager who writes changelogs for end users. You never write like a Git commit log. Keep language clear, outcome-focused, and concise.";
+  const response = await client.responses.create({
+    model: MODEL,
+    temperature: 0.2,
+    input: [
+      {
+        role: "system",
+        content:
+          "You write release notes for end users, not developers. Group output into Features, Fixes, and Breaking Changes. Keep language plain and outcome-focused. Mention upgrade impact clearly. Return valid Markdown only."
+      },
+      {
+        role: "user",
+        content: `Create release notes for this GitHub range.\n\nJSON:\n${JSON.stringify(inputPayload, null, 2)}\n\nRules:\n- Start with title '# Release Notes'.\n- Add a short summary paragraph after the title.\n- Under each section use bullets and describe user-visible impact.\n- Include PR number references like #123 when possible.\n- If a section has no items, include a single bullet saying no notable changes.\n- Add final section '## Upgrade Notes' with deployment cautions and migration tips.`
+      }
+    ]
+  });
 
-  const userPrompt = [
-    "Generate markdown release notes using exactly these top-level sections in this order:",
-    "1) # <repo> Release <toTag>",
-    "2) ## Breaking Changes",
-    "3) ## Features",
-    "4) ## Fixes",
-    "5) ## Upgrade Notes",
-    "6) ## Full Changelog",
-    "",
-    "Rules:",
-    "- Group content by user impact, not implementation details.",
-    "- Mention PR number links where available.",
-    "- Skip empty sections by writing one bullet saying there were no notable items.",
-    "- In Upgrade Notes, include action items if breaking changes exist.",
-    "- Use short bullets, no nested bullets.",
-    "",
-    "Data:",
-    JSON.stringify(compactInput)
-  ].join("\n");
+  const text = response.output_text?.trim();
 
-  try {
-    const completion = await openai.chat.completions.create({
-      model,
-      temperature: 0.25,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ]
-    });
-
-    const markdown = completion.choices[0]?.message?.content?.trim();
-
-    if (!markdown) {
-      return fallbackChangelog(data);
-    }
-
-    return {
-      markdown,
-      model
-    };
-  } catch {
-    return fallbackChangelog(data);
+  if (!text) {
+    return fallbackReleaseNotes(data);
   }
+
+  return text;
 }

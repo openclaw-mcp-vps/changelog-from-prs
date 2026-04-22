@@ -1,119 +1,100 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Search, RefreshCw, GitBranch } from "lucide-react";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Github, RefreshCcw } from "lucide-react";
 
-interface RepositoryItem {
+import { Button } from "@/components/ui/button";
+
+type Repo = {
   id: number;
   fullName: string;
-  private: boolean;
-  defaultBranch: string;
+  isPrivate: boolean;
   updatedAt: string;
-}
+};
 
-interface RepoSelectorProps {
+type RepoSelectorProps = {
   value: string;
-  onChange: (value: string) => void;
-}
+  onChange: (repo: string) => void;
+};
 
 export function RepoSelector({ value, onChange }: RepoSelectorProps) {
-  const [repos, setRepos] = useState<RepositoryItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [repos, setRepos] = useState<Repo[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [connected, setConnected] = useState(true);
 
-  const filtered = useMemo(() => {
-    if (!value.trim()) {
-      return repos.slice(0, 8);
-    }
-
-    return repos
-      .filter((repo) => repo.fullName.toLowerCase().includes(value.toLowerCase()))
-      .slice(0, 8);
-  }, [repos, value]);
-
-  async function loadRepos() {
-    setLoading(true);
+  const loadRepos = useCallback(async () => {
+    setIsLoading(true);
     setError(null);
 
     try {
       const response = await fetch("/api/github/repos", { cache: "no-store" });
-
-      if (response.status === 401) {
-        setConnected(false);
-        setRepos([]);
-        return;
-      }
-
       if (!response.ok) {
-        throw new Error("Unable to load repositories");
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error ?? "Unable to load repositories.");
       }
 
-      const payload = (await response.json()) as { repositories: RepositoryItem[] };
-      setConnected(true);
-      setRepos(payload.repositories ?? []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
+      const payload = (await response.json()) as { repos: Repo[] };
+      setRepos(payload.repos);
+    } catch (loadError) {
+      const message = loadError instanceof Error ? loadError.message : "Unable to load repositories.";
+      setError(message);
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     void loadRepos();
-  }, []);
+  }, [loadRepos]);
+
+  const statusText = useMemo(() => {
+    if (isLoading) {
+      return "Loading repositories...";
+    }
+
+    if (error) {
+      return error;
+    }
+
+    if (repos.length === 0) {
+      return "No repositories found for this account.";
+    }
+
+    return `${repos.length} repositories available`;
+  }, [error, isLoading, repos.length]);
 
   return (
-    <Card className="space-y-4 p-4 md:p-5">
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold text-slate-200">1. Choose Repository</p>
-        <Button variant="ghost" size="sm" onClick={() => void loadRepos()} className="gap-1.5">
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+        <label htmlFor="repo-selector" className="text-sm font-medium text-slate-200">
+          Repository
+        </label>
+        <Button type="button" size="sm" variant="ghost" onClick={() => void loadRepos()}>
+          <RefreshCcw className="h-4 w-4" />
           Refresh
         </Button>
       </div>
 
       <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-500" />
-        <Input
+        <Github className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+        <select
+          id="repo-selector"
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          placeholder="owner/repo or paste GitHub URL"
-          className="pl-10"
-        />
+          className="h-10 w-full rounded-md border border-slate-700 bg-slate-900 pl-9 pr-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+          disabled={isLoading || Boolean(error)}
+        >
+          <option value="">Select a repository</option>
+          {repos.map((repo) => (
+            <option key={repo.id} value={repo.fullName}>
+              {repo.fullName}
+              {repo.isPrivate ? " (private)" : ""}
+            </option>
+          ))}
+        </select>
       </div>
 
-      {!connected ? (
-        <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-200">
-          Connect GitHub first to load your repositories automatically.
-        </div>
-      ) : null}
-
-      {error ? <div className="text-sm text-rose-300">{error}</div> : null}
-
-      {filtered.length > 0 ? (
-        <div className="grid gap-2">
-          {filtered.map((repo) => (
-            <button
-              key={repo.id}
-              type="button"
-              onClick={() => onChange(repo.fullName)}
-              className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-left transition hover:border-cyan-400/50"
-            >
-              <span className="truncate text-sm text-slate-200">{repo.fullName}</span>
-              <span className="ml-3 text-xs text-slate-500">{repo.private ? "Private" : repo.defaultBranch}</span>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <div className="flex items-center gap-2 text-sm text-slate-500">
-          <GitBranch className="h-4 w-4" />
-          {loading ? "Loading repositories..." : "Type to filter repositories"}
-        </div>
-      )}
-    </Card>
+      <p className="text-xs text-slate-400">{statusText}</p>
+    </div>
   );
 }

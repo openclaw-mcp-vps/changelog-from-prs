@@ -1,244 +1,179 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
 import crypto from "node:crypto";
-
-export type PlanType = "single" | "monthly";
-
-export interface GenerationRecord {
-  id: string;
-  createdAt: string;
-  accessToken: string;
-  repository: string;
-  fromTag: string;
-  toTag: string;
-  markdown: string;
-  sourcePrCount: number;
-  sourceCommitCount: number;
-}
-
-export interface Entitlement {
-  accessToken: string;
-  credits: number;
-  subscriptionEndsAt: string | null;
-  updatedAt: string;
-}
-
-interface CheckoutSession {
-  id: string;
-  accessToken: string;
-  plan: PlanType;
-  status: "pending" | "paid" | "failed";
-  createdAt: string;
-  updatedAt: string;
-  lemonOrderId?: string;
-}
-
-interface DatabaseSchema {
-  entitlements: Record<string, Entitlement>;
-  checkoutSessions: CheckoutSession[];
-  generations: GenerationRecord[];
-}
+import fs from "node:fs/promises";
+import path from "node:path";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
-const DB_PATH = path.join(DATA_DIR, "db.json");
+const DATA_FILE = path.join(DATA_DIR, "store.json");
+const SESSION_DURATION_DAYS = 30;
 
-let mutateQueue: Promise<unknown> = Promise.resolve();
+type PurchaseRecord = {
+  email: string;
+  source: "stripe" | "manual";
+  purchasedAt: string;
+};
 
-function emptyDb(): DatabaseSchema {
-  return {
-    entitlements: {},
-    checkoutSessions: [],
-    generations: []
-  };
-}
+type SessionRecord = {
+  email: string;
+  expiresAt: string;
+};
 
-async function ensureDbFile() {
-  await mkdir(DATA_DIR, { recursive: true });
+type UsageRecord = {
+  month: string;
+  releasesGenerated: number;
+};
 
+type DatabaseShape = {
+  purchases: Record<string, PurchaseRecord>;
+  sessions: Record<string, SessionRecord>;
+  usage: Record<string, UsageRecord[]>;
+};
+
+const EMPTY_DB: DatabaseShape = {
+  purchases: {},
+  sessions: {},
+  usage: {}
+};
+
+async function ensureDatabaseFile() {
+  await fs.mkdir(DATA_DIR, { recursive: true });
   try {
-    await readFile(DB_PATH, "utf8");
+    await fs.access(DATA_FILE);
   } catch {
-    await writeFile(DB_PATH, JSON.stringify(emptyDb(), null, 2), "utf8");
+    await fs.writeFile(DATA_FILE, JSON.stringify(EMPTY_DB, null, 2), "utf-8");
   }
 }
 
-async function readDb(): Promise<DatabaseSchema> {
-  await ensureDbFile();
-  const raw = await readFile(DB_PATH, "utf8");
-
+async function readDatabase(): Promise<DatabaseShape> {
+  await ensureDatabaseFile();
+  const contents = await fs.readFile(DATA_FILE, "utf-8");
   try {
-    const parsed = JSON.parse(raw) as DatabaseSchema;
+    const parsed = JSON.parse(contents) as DatabaseShape;
     return {
-      entitlements: parsed.entitlements ?? {},
-      checkoutSessions: parsed.checkoutSessions ?? [],
-      generations: parsed.generations ?? []
+      purchases: parsed.purchases ?? {},
+      sessions: parsed.sessions ?? {},
+      usage: parsed.usage ?? {}
     };
   } catch {
-    return emptyDb();
+    return EMPTY_DB;
   }
 }
 
-async function writeDb(db: DatabaseSchema) {
-  await writeFile(DB_PATH, JSON.stringify(db, null, 2), "utf8");
+async function writeDatabase(db: DatabaseShape) {
+  await ensureDatabaseFile();
+  await fs.writeFile(DATA_FILE, JSON.stringify(db, null, 2), "utf-8");
 }
 
-async function mutateDb<T>(mutator: (db: DatabaseSchema) => T | Promise<T>): Promise<T> {
-  const resultPromise = mutateQueue.then(async () => {
-    const db = await readDb();
-    const result = await mutator(db);
-    await writeDb(db);
-    return result;
-  });
-
-  mutateQueue = resultPromise.then(
-    () => undefined,
-    () => undefined
-  );
-
-  return resultPromise;
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
 }
 
-export function generateOpaqueToken() {
-  return crypto.randomBytes(24).toString("hex");
+function monthKey(date = new Date()): string {
+  const year = date.getUTCFullYear();
+  const month = `${date.getUTCMonth() + 1}`.padStart(2, "0");
+  return `${year}-${month}`;
 }
 
-export function hasActiveAccess(entitlement: Entitlement | null) {
-  if (!entitlement) {
-    return false;
-  }
-
-  if (entitlement.credits > 0) {
-    return true;
-  }
-
-  if (!entitlement.subscriptionEndsAt) {
-    return false;
-  }
-
-  return new Date(entitlement.subscriptionEndsAt).getTime() > Date.now();
+export async function recordPurchase(email: string, source: "stripe" | "manual" = "manual") {
+  const normalized = normalizeEmail(email);
+  const db = await readDatabase();
+  db.purchases[normalized] = {
+    email: normalized,
+    source,
+    purchasedAt: new Date().toISOString()
+  };
+  await writeDatabase(db);
 }
 
-export async function getEntitlement(accessToken: string): Promise<Entitlement | null> {
-  const db = await readDb();
-  return db.entitlements[accessToken] ?? null;
+export async function hasPurchase(email: string): Promise<boolean> {
+  const normalized = normalizeEmail(email);
+  const db = await readDatabase();
+  return Boolean(db.purchases[normalized]);
 }
 
-export async function getAccessSnapshot(accessToken: string) {
-  const entitlement = await getEntitlement(accessToken);
+export async function createPaidSession(email: string) {
+  const normalized = normalizeEmail(email);
+  const db = await readDatabase();
+  const token = crypto.randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + SESSION_DURATION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+  db.sessions[token] = {
+    email: normalized,
+    expiresAt
+  };
+
+  await writeDatabase(db);
 
   return {
-    active: hasActiveAccess(entitlement),
-    credits: entitlement?.credits ?? 0,
-    subscriptionEndsAt: entitlement?.subscriptionEndsAt ?? null
+    token,
+    expiresAt
   };
 }
 
-export async function createCheckoutSession(params: { accessToken: string; plan: PlanType }) {
-  return mutateDb((db) => {
-    const now = new Date().toISOString();
-    const session: CheckoutSession = {
-      id: generateOpaqueToken(),
-      accessToken: params.accessToken,
-      plan: params.plan,
-      status: "pending",
-      createdAt: now,
-      updatedAt: now
-    };
+export async function getSessionEmail(token?: string | null): Promise<string | null> {
+  if (!token) {
+    return null;
+  }
 
-    db.checkoutSessions.unshift(session);
-    db.checkoutSessions = db.checkoutSessions.slice(0, 2000);
+  const db = await readDatabase();
+  const session = db.sessions[token];
 
-    return session;
-  });
+  if (!session) {
+    return null;
+  }
+
+  if (new Date(session.expiresAt).getTime() < Date.now()) {
+    delete db.sessions[token];
+    await writeDatabase(db);
+    return null;
+  }
+
+  return session.email;
 }
 
-export async function grantEntitlement(params: {
-  accessToken: string;
-  plan: PlanType;
-  lemonOrderId?: string;
-  subscriptionEndsAt?: string | null;
-}) {
-  return mutateDb((db) => {
-    const now = new Date().toISOString();
-    const existing = db.entitlements[params.accessToken];
+export async function revokeSession(token?: string | null) {
+  if (!token) {
+    return;
+  }
 
-    const next: Entitlement = {
-      accessToken: params.accessToken,
-      credits: existing?.credits ?? 0,
-      subscriptionEndsAt: existing?.subscriptionEndsAt ?? null,
-      updatedAt: now
-    };
-
-    if (params.plan === "single") {
-      next.credits += 1;
-    } else {
-      const currentEnd = existing?.subscriptionEndsAt ? new Date(existing.subscriptionEndsAt).getTime() : 0;
-      const candidateEnd = params.subscriptionEndsAt
-        ? new Date(params.subscriptionEndsAt).getTime()
-        : Date.now() + 30 * 24 * 60 * 60 * 1000;
-      const chosenEnd = Math.max(currentEnd, candidateEnd);
-      next.subscriptionEndsAt = new Date(chosenEnd).toISOString();
-    }
-
-    db.entitlements[params.accessToken] = next;
-
-    const latestPending = db.checkoutSessions.find(
-      (session) => session.accessToken === params.accessToken && session.plan === params.plan && session.status === "pending"
-    );
-
-    if (latestPending) {
-      latestPending.status = "paid";
-      latestPending.updatedAt = now;
-      if (params.lemonOrderId) {
-        latestPending.lemonOrderId = params.lemonOrderId;
-      }
-    }
-
-    return next;
-  });
+  const db = await readDatabase();
+  if (db.sessions[token]) {
+    delete db.sessions[token];
+    await writeDatabase(db);
+  }
 }
 
-export async function consumeGeneration(accessToken: string) {
-  return mutateDb((db) => {
-    const entitlement = db.entitlements[accessToken];
-    if (!entitlement) {
-      return { allowed: false as const, reason: "No active entitlement" };
-    }
+export async function incrementUsage(email: string) {
+  const normalized = normalizeEmail(email);
+  const db = await readDatabase();
+  const bucket = db.usage[normalized] ?? [];
+  const key = monthKey();
 
-    const hasSub = entitlement.subscriptionEndsAt
-      ? new Date(entitlement.subscriptionEndsAt).getTime() > Date.now()
-      : false;
+  const existing = bucket.find((entry) => entry.month === key);
+  if (existing) {
+    existing.releasesGenerated += 1;
+  } else {
+    bucket.push({ month: key, releasesGenerated: 1 });
+  }
 
-    if (hasSub) {
-      return { allowed: true as const, source: "subscription" as const };
-    }
+  db.usage[normalized] = bucket;
+  await writeDatabase(db);
 
-    if (entitlement.credits > 0) {
-      entitlement.credits -= 1;
-      entitlement.updatedAt = new Date().toISOString();
-      return { allowed: true as const, source: "credit" as const, remainingCredits: entitlement.credits };
-    }
-
-    return { allowed: false as const, reason: "No credits remaining" };
-  });
+  return getUsageSummaryForEmail(normalized, db);
 }
 
-export async function recordGeneration(input: Omit<GenerationRecord, "id" | "createdAt">) {
-  return mutateDb((db) => {
-    const record: GenerationRecord = {
-      id: generateOpaqueToken(),
-      createdAt: new Date().toISOString(),
-      ...input
-    };
+function getUsageSummaryForEmail(email: string, db: DatabaseShape) {
+  const records = db.usage[email] ?? [];
+  const current = records.find((entry) => entry.month === monthKey());
+  const total = records.reduce((sum, entry) => sum + entry.releasesGenerated, 0);
 
-    db.generations.unshift(record);
-    db.generations = db.generations.slice(0, 3000);
-
-    return record;
-  });
+  return {
+    currentMonth: current?.releasesGenerated ?? 0,
+    lifetime: total
+  };
 }
 
-export async function listGenerationHistory(accessToken: string, limit = 30) {
-  const db = await readDb();
-  return db.generations.filter((record) => record.accessToken === accessToken).slice(0, limit);
+export async function getUsageSummary(email: string) {
+  const normalized = normalizeEmail(email);
+  const db = await readDatabase();
+  return getUsageSummaryForEmail(normalized, db);
 }

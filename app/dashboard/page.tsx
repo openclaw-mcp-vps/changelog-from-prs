@@ -1,121 +1,118 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
-import { ArrowRight, GitBranch, Lock, Sparkles } from "lucide-react";
+import { ArrowRight, LockKeyhole, LogOut, PlugZap } from "lucide-react";
+
 import { PricingCards } from "@/components/PricingCards";
+import { UnlockPurchaseForm } from "@/components/UnlockPurchaseForm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { listGenerationHistory } from "@/lib/database";
-import { ACCESS_TOKEN_COOKIE } from "@/lib/lemonsqueezy";
-import { GITHUB_USER_COOKIE } from "@/lib/github";
+import { getSessionEmail, getUsageSummary } from "@/lib/database";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const cookieStore = await cookies();
-  const githubUser = cookieStore.get(GITHUB_USER_COOKIE)?.value ?? null;
-  const accessToken = cookieStore.get(ACCESS_TOKEN_COOKIE)?.value ?? null;
+  const githubToken = cookieStore.get("gh_token")?.value;
+  const githubLogin = cookieStore.get("gh_login")?.value;
 
-  const generations = accessToken ? await listGenerationHistory(accessToken, 20) : [];
+  const paidToken = cookieStore.get("paid_session")?.value;
+  const paidEmail = await getSessionEmail(paidToken);
+  const usage = paidEmail ? await getUsageSummary(paidEmail) : null;
 
   return (
-    <main className="mx-auto max-w-6xl px-4 pb-20 pt-8 sm:px-6">
-      <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="font-[family-name:var(--font-heading)] text-3xl text-slate-100">Dashboard</h1>
-          <p className="text-sm text-slate-400">Connect GitHub, unlock access, and review recent generation history.</p>
-        </div>
-        <Button asChild variant="ghost">
-          <Link href="/">Back to Home</Link>
-        </Button>
-      </div>
+    <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 pb-20 pt-12 md:px-10">
+      <header className="space-y-3">
+        <Badge>Dashboard</Badge>
+        <h1 className="text-3xl font-semibold text-slate-100">Release notes workspace</h1>
+        <p className="max-w-3xl text-slate-300">
+          Connect GitHub, unlock access from your Stripe purchase email, and generate release notes from any version tag range.
+        </p>
+      </header>
 
-      <section className="grid gap-4 md:grid-cols-2">
-        <Card>
+      <div className="grid gap-6 md:grid-cols-2">
+        <Card className="bg-[#101722]">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <GitBranch className="h-5 w-5 text-cyan-300" />
-              GitHub Connection
-            </CardTitle>
-            <CardDescription>OAuth is required for repository, tag, and PR access.</CardDescription>
+            <CardTitle className="text-xl">1) GitHub connection</CardTitle>
+            <CardDescription>OAuth is required to read repos, tags, PRs, and commit history.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {githubUser ? (
-              <>
-                <Badge>Connected as @{githubUser}</Badge>
-                <div className="flex flex-wrap gap-2">
-                  <Button asChild>
-                    <Link href="/generate">Open Generator</Link>
-                  </Button>
-                  <Button asChild variant="outline">
-                    <Link href="/api/auth/github?logout=1&next=/dashboard">Disconnect</Link>
-                  </Button>
-                </div>
-              </>
+            <p className="text-sm text-slate-300">
+              {githubToken ? `Connected as ${githubLogin ?? "GitHub user"}.` : "No GitHub account connected yet."}
+            </p>
+            {githubToken ? (
+              <Button asChild variant="outline">
+                <Link href="/api/auth/github?action=logout">
+                  <LogOut className="h-4 w-4" />
+                  Disconnect GitHub
+                </Link>
+              </Button>
             ) : (
-              <>
-                <p className="text-sm text-slate-300">Connect your account to load repositories and compare tags.</p>
-                <Button asChild>
-                  <Link href="/api/auth/github?next=/dashboard">Connect GitHub</Link>
-                </Button>
-              </>
+              <Button asChild>
+                <Link href="/api/auth/github">
+                  <PlugZap className="h-4 w-4" />
+                  Connect GitHub
+                </Link>
+              </Button>
             )}
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="bg-[#101722]">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Lock className="h-5 w-5 text-cyan-300" />
-              Access & Billing
-            </CardTitle>
-            <CardDescription>The generator is paywalled per release or via monthly subscription.</CardDescription>
+            <CardTitle className="text-xl">2) Paid access</CardTitle>
+            <CardDescription>The generation endpoint is locked behind a paid cookie session.</CardDescription>
           </CardHeader>
-          <CardContent>
-            <PricingCards compact />
+          <CardContent className="space-y-4">
+            {paidEmail ? (
+              <>
+                <p className="text-sm text-emerald-300">Unlocked for {paidEmail}</p>
+                <p className="text-sm text-slate-300">
+                  Usage this month: {usage?.currentMonth ?? 0} releases. Lifetime: {usage?.lifetime ?? 0} releases.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-slate-300">Complete Stripe checkout, then unlock with the same purchase email.</p>
+                <UnlockPurchaseForm />
+              </>
+            )}
           </CardContent>
         </Card>
-      </section>
+      </div>
 
-      <section className="mt-10">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="font-[family-name:var(--font-heading)] text-2xl text-slate-100">Generation History</h2>
-          <Button asChild variant="secondary" className="gap-2">
-            <Link href="/generate">
-              New Generation
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </Button>
-        </div>
+      {githubToken && paidEmail ? (
+        <Card className="border-cyan-500/20 bg-cyan-500/5">
+          <CardHeader>
+            <CardTitle className="text-xl">Ready to generate</CardTitle>
+            <CardDescription>Your account has both required gates enabled.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild>
+              <Link href="/generate">
+                Open Generator
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="border-amber-500/20 bg-amber-500/5">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-xl text-amber-100">
+              <LockKeyhole className="h-5 w-5" />
+              Complete both steps to unlock the tool
+            </CardTitle>
+            <CardDescription>
+              Connect GitHub and confirm your Stripe purchase email. The generator will stay locked until both are active.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
 
-        {generations.length === 0 ? (
-          <Card>
-            <CardContent className="pt-6 text-sm text-slate-400">
-              <div className="inline-flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-cyan-300" />
-                No generated releases yet. Connect GitHub and create your first changelog.
-              </div>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-3">
-            {generations.map((item) => (
-              <Card key={item.id} className="p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="font-semibold text-slate-100">{item.repository}</p>
-                    <p className="text-xs text-slate-500">
-                      {item.fromTag} → {item.toTag} • {new Date(item.createdAt).toLocaleString()}
-                    </p>
-                  </div>
-                  <Badge>
-                    {item.sourcePrCount} PRs / {item.sourceCommitCount} commits
-                  </Badge>
-                </div>
-              </Card>
-            ))}
-          </div>
-        )}
+      <section className="space-y-4">
+        <h2 className="text-2xl font-semibold text-slate-100">Need a plan first?</h2>
+        <PricingCards />
       </section>
     </main>
   );

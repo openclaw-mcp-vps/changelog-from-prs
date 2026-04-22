@@ -1,22 +1,21 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getGitHubTokenFromRequest, listAuthenticatedRepos } from "@/lib/github";
+import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
 
-export async function GET(request: NextRequest) {
-  const token = getGitHubTokenFromRequest(request);
+import { fetchUserRepos } from "@/lib/github";
+
+export async function GET() {
+  const cookieStore = await cookies();
+  const token = cookieStore.get("gh_token")?.value;
 
   if (!token) {
-    return NextResponse.json({ error: "GitHub not connected" }, { status: 401 });
+    return NextResponse.json({ error: "GitHub is not connected." }, { status: 401 });
   }
 
   try {
-    const repositories = await listAuthenticatedRepos(token);
-    return NextResponse.json({ repositories });
+    const repos = await fetchUserRepos(token);
+    return NextResponse.json({ repos });
   } catch (error) {
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Unable to fetch repositories"
-      },
-      { status: 500 }
-    );
+    const message = error instanceof Error ? error.message : "Failed to fetch repositories.";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -1,135 +1,165 @@
 import Link from "next/link";
-import { ArrowRight, GitBranchPlus, History, Sparkles, ShieldCheck } from "lucide-react";
+import { ArrowRight, Bot, GitPullRequestArrow, ShieldCheck, Sparkle } from "lucide-react";
+
+import { PricingCards } from "@/components/PricingCards";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { PricingCards } from "@/components/PricingCards";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 const faqs = [
   {
-    question: "Why not use conventional commits or release-please?",
+    question: "Do I need Conventional Commits or release-please labels?",
     answer:
-      "Most projects have inconsistent PR titles and merge habits. Changelog from PRs reads the actual PR and commit history, then writes end-user notes without requiring strict conventions."
+      "No. The generator reads PR bodies, labels, linked commits, and direct commit messages, then rewrites everything for end users."
   },
   {
-    question: "Does it work for private repositories?",
+    question: "Can this work with private repositories?",
     answer:
-      "Yes. GitHub OAuth uses your own access token and only reads repos you can already access."
+      "Yes. Connect GitHub through OAuth and choose private repos from your own account or org access."
   },
   {
-    question: "What counts as one paid release?",
+    question: "How does the paywall work?",
     answer:
-      "One generation run for a selected tag range. If you use the monthly plan, runs are unlimited while the subscription is active."
+      "Checkout runs on Stripe-hosted Payment Links. After purchase, confirm your purchase email once in the dashboard to unlock cookie-based access."
   },
   {
-    question: "Can I edit the generated notes?",
-    answer:
-      "Yes. Output is markdown, so you can copy, tweak, and publish it to GitHub Releases, docs, or your changelog file."
+    question: "What format is the output?",
+    answer: "Markdown optimized for GitHub Releases, changelog files, blog updates, and customer emails."
   }
 ];
 
 export default function HomePage() {
   return (
-    <main className="mx-auto max-w-6xl px-4 pb-20 pt-8 sm:px-6 md:pt-12">
-      <header className="fade-up">
-        <div className="mb-10 flex flex-wrap items-center justify-between gap-4">
-          <Link href="/" className="font-[family-name:var(--font-heading)] text-xl font-bold text-slate-100">
-            Changelog from PRs
-          </Link>
-          <div className="flex items-center gap-2">
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/dashboard">Dashboard</Link>
-            </Button>
-            <Button asChild size="sm">
-              <Link href="/generate">Try the Generator</Link>
-            </Button>
-          </div>
-        </div>
+    <main className="mx-auto flex w-full max-w-6xl flex-col gap-20 px-6 pb-24 pt-12 md:px-10">
+      <section className="relative overflow-hidden rounded-3xl border border-slate-800 bg-[#0f1724] p-8 md:p-12">
+        <div className="absolute -right-10 -top-10 h-48 w-48 rounded-full bg-cyan-500/20 blur-3xl" aria-hidden />
+        <div className="absolute -bottom-20 left-10 h-52 w-52 rounded-full bg-blue-500/20 blur-3xl" aria-hidden />
 
-        <div className="grid gap-8 lg:grid-cols-[1.2fr_1fr] lg:items-center">
-          <div className="space-y-5">
-            <Badge>Release tools for maintainers</Badge>
-            <h1 className="font-[family-name:var(--font-heading)] text-4xl font-bold tracking-tight text-slate-100 sm:text-5xl">
+        <div className="relative grid gap-8 md:grid-cols-[1.1fr_0.9fr] md:items-center">
+          <div className="space-y-6">
+            <Badge>Release Notes Automation</Badge>
+            <h1 className="text-4xl font-semibold leading-tight text-slate-100 md:text-5xl">
               Changelog from PRs
-              <span className="mt-2 block text-cyan-300">Generate release notes people actually read</span>
+              <span className="block text-cyan-300">Paste a repo + tag range, ship release notes your users can understand.</span>
             </h1>
             <p className="max-w-2xl text-lg text-slate-300">
-              Paste a repository and tag range. We read every PR and commit, then write release notes grouped by Features,
-              Fixes, and Breaking Changes in plain language for users.
+              Stop spending release day rewriting technical PR titles. This tool scans every PR and direct commit between versions,
+              then produces clear, user-facing notes grouped into Features, Fixes, and Breaking Changes.
             </p>
-            <div className="flex flex-wrap items-center gap-3">
-              <Button asChild size="lg" className="gap-2">
-                <Link href="/generate">
-                  Generate a Release
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Button asChild size="lg">
+                <Link href="/dashboard">
+                  Connect GitHub
                   <ArrowRight className="h-4 w-4" />
                 </Link>
               </Button>
-              <Button asChild variant="outline" size="lg">
+              <Button asChild size="lg" variant="outline">
                 <Link href="#pricing">See Pricing</Link>
               </Button>
             </div>
-            <p className="text-sm text-slate-500">$5 per release or $19/mo unlimited for active maintainers.</p>
           </div>
 
-          <Card className="surface-glow fade-up-delay p-6">
-            <div className="space-y-4 text-sm text-slate-300">
-              <p className="text-xs uppercase tracking-wide text-slate-500">How it works</p>
-              <div className="grid gap-3">
-                <div className="flex items-start gap-3">
-                  <GitBranchPlus className="mt-0.5 h-4 w-4 text-cyan-300" />
-                  <p>Connect GitHub and choose a repository with version tags.</p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <History className="mt-0.5 h-4 w-4 text-cyan-300" />
-                  <p>We analyze PRs and commits between your selected tags.</p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <Sparkles className="mt-0.5 h-4 w-4 text-cyan-300" />
-                  <p>AI drafts customer-ready notes grouped by impact.</p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <ShieldCheck className="mt-0.5 h-4 w-4 text-cyan-300" />
-                  <p>Copy markdown and publish to GitHub Releases or docs in seconds.</p>
-                </div>
-              </div>
-            </div>
+          <Card className="border-slate-700/80 bg-slate-950/60">
+            <CardHeader>
+              <CardTitle className="text-lg">Why maintainers pay for this</CardTitle>
+              <CardDescription>Ship notes faster without enforcing contributor formatting rules.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm text-slate-300">
+              <p className="flex items-start gap-2">
+                <GitPullRequestArrow className="mt-0.5 h-4 w-4 text-cyan-300" />
+                Works on any commit history, including messy PR titles and mixed contribution styles.
+              </p>
+              <p className="flex items-start gap-2">
+                <Bot className="mt-0.5 h-4 w-4 text-cyan-300" />
+                AI rewrites implementation details into customer impact language.
+              </p>
+              <p className="flex items-start gap-2">
+                <ShieldCheck className="mt-0.5 h-4 w-4 text-cyan-300" />
+                Stripe checkout and cookie-based access keeps the generation endpoint paywalled.
+              </p>
+            </CardContent>
           </Card>
         </div>
-      </header>
-
-      <section className="mt-20 grid gap-6 md:grid-cols-2">
-        <Card className="p-6">
-          <h2 className="font-[family-name:var(--font-heading)] text-2xl text-slate-100">The problem</h2>
-          <p className="mt-3 text-slate-300">
-            Teams skip release notes because commit logs are noisy and PR naming is inconsistent. Traditional automation expects
-            strict conventions that open-source projects rarely enforce.
-          </p>
-        </Card>
-
-        <Card className="p-6">
-          <h2 className="font-[family-name:var(--font-heading)] text-2xl text-slate-100">The solution</h2>
-          <p className="mt-3 text-slate-300">
-            Changelog from PRs reads your real history, understands what changed, and writes release notes for users. No
-            migration, no commit policy rewrites, no manual synthesis.
-          </p>
-        </Card>
       </section>
 
-      <section id="pricing" className="mt-20">
-        <div className="mb-6">
-          <h2 className="font-[family-name:var(--font-heading)] text-3xl text-slate-100">Pricing</h2>
-          <p className="mt-2 text-slate-400">Start with a single release or switch to unlimited when your project cadence grows.</p>
+      <section className="space-y-6">
+        <h2 className="text-3xl font-semibold text-slate-100">The problem with release tooling today</h2>
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card className="bg-[#101722]">
+            <CardHeader>
+              <CardTitle className="text-lg">Convention lock-in</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-slate-300">
+              Most generators need strict commit prefixes or PR label discipline. Real-world repos rarely stay that clean.
+            </CardContent>
+          </Card>
+          <Card className="bg-[#101722]">
+            <CardHeader>
+              <CardTitle className="text-lg">Manual rewrite fatigue</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-slate-300">
+              Maintainers still hand-edit each release because raw commit text is too technical for users.
+            </CardContent>
+          </Card>
+          <Card className="bg-[#101722]">
+            <CardHeader>
+              <CardTitle className="text-lg">Slow release cycles</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-slate-300">
+              Changelog cleanup becomes the bottleneck right when teams need to publish quickly.
+            </CardContent>
+          </Card>
         </div>
+      </section>
+
+      <section className="space-y-6">
+        <h2 className="text-3xl font-semibold text-slate-100">How Changelog from PRs solves it</h2>
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card className="bg-[#101722]">
+            <CardHeader>
+              <Sparkle className="h-5 w-5 text-cyan-300" />
+              <CardTitle className="text-lg">Select tag range</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-slate-300">Pick any two versions to analyze exactly what changed between releases.</CardContent>
+          </Card>
+          <Card className="bg-[#101722]">
+            <CardHeader>
+              <Sparkle className="h-5 w-5 text-cyan-300" />
+              <CardTitle className="text-lg">Read all PRs + commits</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-slate-300">
+              The app gathers merged PRs and direct commits so edge cases do not disappear from notes.
+            </CardContent>
+          </Card>
+          <Card className="bg-[#101722]">
+            <CardHeader>
+              <Sparkle className="h-5 w-5 text-cyan-300" />
+              <CardTitle className="text-lg">Generate end-user notes</CardTitle>
+            </CardHeader>
+            <CardContent className="text-sm text-slate-300">
+              Output arrives grouped by Feature, Fix, and Breaking Change with upgrade context ready to publish.
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
+      <section id="pricing" className="space-y-6">
+        <h2 className="text-3xl font-semibold text-slate-100">Pricing for independent maintainers</h2>
+        <p className="text-slate-300">
+          Start per release, then switch to unlimited when your project ships often. Checkout is handled directly by Stripe.
+        </p>
         <PricingCards />
       </section>
 
-      <section className="mt-20">
-        <h2 className="font-[family-name:var(--font-heading)] text-3xl text-slate-100">FAQ</h2>
-        <div className="mt-6 grid gap-4 md:grid-cols-2">
+      <section className="space-y-6">
+        <h2 className="text-3xl font-semibold text-slate-100">FAQ</h2>
+        <div className="grid gap-4">
           {faqs.map((faq) => (
-            <Card key={faq.question} className="p-5">
-              <h3 className="font-[family-name:var(--font-heading)] text-lg text-slate-100">{faq.question}</h3>
-              <p className="mt-2 text-sm text-slate-300">{faq.answer}</p>
+            <Card key={faq.question} className="bg-[#101722]">
+              <CardHeader>
+                <CardTitle className="text-lg">{faq.question}</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-slate-300">{faq.answer}</CardContent>
             </Card>
           ))}
         </div>

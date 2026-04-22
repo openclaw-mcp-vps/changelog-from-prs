@@ -1,70 +1,61 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
-import { LockKeyhole, GitBranch } from "lucide-react";
-import { GenerateWorkspace } from "@/components/GenerateWorkspace";
+
 import { PricingCards } from "@/components/PricingCards";
-import { Badge } from "@/components/ui/badge";
+import { ReleaseGenerator } from "@/components/ReleaseGenerator";
+import { UnlockPurchaseForm } from "@/components/UnlockPurchaseForm";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { GITHUB_USER_COOKIE } from "@/lib/github";
-import { getServerAccessSnapshot } from "@/lib/lemonsqueezy";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { getSessionEmail } from "@/lib/database";
 
 export const dynamic = "force-dynamic";
 
 export default async function GeneratePage() {
   const cookieStore = await cookies();
-  const githubUser = cookieStore.get(GITHUB_USER_COOKIE)?.value ?? null;
-  const access = await getServerAccessSnapshot();
+  const githubToken = cookieStore.get("gh_token")?.value;
+  const paidSession = cookieStore.get("paid_session")?.value;
+  const paidEmail = await getSessionEmail(paidSession);
+
+  if (!githubToken) {
+    return (
+      <main className="mx-auto flex min-h-screen w-full max-w-3xl items-center px-6 py-12">
+        <Card className="w-full bg-[#101722]">
+          <CardHeader>
+            <CardTitle>Connect GitHub first</CardTitle>
+            <CardDescription>The generator needs OAuth access before it can read tags, PRs, and commits.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild>
+              <Link href="/api/auth/github">Connect GitHub</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </main>
+    );
+  }
+
+  if (!paidEmail) {
+    return (
+      <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-12 md:px-10">
+        <Card className="bg-[#101722]">
+          <CardHeader>
+            <CardTitle>Unlock required</CardTitle>
+            <CardDescription>
+              This tool is behind a paid cookie session. Buy through Stripe, then unlock with the same purchase email.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <UnlockPurchaseForm />
+          </CardContent>
+        </Card>
+        <PricingCards />
+      </main>
+    );
+  }
 
   return (
-    <main className="mx-auto max-w-5xl px-4 pb-20 pt-8 sm:px-6">
-      <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="font-[family-name:var(--font-heading)] text-3xl text-slate-100">Generate Release Notes</h1>
-          <p className="text-sm text-slate-400">Select a tag range and generate end-user changelog markdown in one pass.</p>
-        </div>
-        <div className="flex gap-2">
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/">Home</Link>
-          </Button>
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/dashboard">Dashboard</Link>
-          </Button>
-        </div>
-      </div>
-
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        {githubUser ? <Badge>GitHub: @{githubUser}</Badge> : <Badge className="border-amber-400/30 bg-amber-500/10 text-amber-200">GitHub disconnected</Badge>}
-        {access.active ? (
-          <Badge>Paid Access Active</Badge>
-        ) : (
-          <Badge className="border-amber-400/30 bg-amber-500/10 text-amber-200">Paywall Locked</Badge>
-        )}
-      </div>
-
-      {!githubUser ? (
-        <Card className="mb-6 space-y-3 p-5">
-          <div className="inline-flex items-center gap-2 text-slate-200">
-            <GitBranch className="h-4 w-4 text-cyan-300" />
-            Connect GitHub before generating changelogs.
-          </div>
-          <Button asChild>
-            <Link href="/api/auth/github?next=/generate">Connect GitHub</Link>
-          </Button>
-        </Card>
-      ) : null}
-
-      {!access.active ? (
-        <Card className="mb-6 space-y-4 p-5">
-          <div className="inline-flex items-center gap-2 text-slate-200">
-            <LockKeyhole className="h-4 w-4 text-cyan-300" />
-            Purchase access to run the generator.
-          </div>
-          <PricingCards compact initialAccess={access} />
-        </Card>
-      ) : null}
-
-      <GenerateWorkspace canGenerate={Boolean(githubUser) && access.active} />
+    <main className="mx-auto w-full max-w-5xl px-6 py-12 md:px-10">
+      <ReleaseGenerator />
     </main>
   );
 }

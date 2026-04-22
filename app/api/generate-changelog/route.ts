@@ -1,95 +1,65 @@
-import { NextRequest, NextResponse } from "next/server";
-import { consumeGeneration, getAccessSnapshot, recordGeneration } from "@/lib/database";
-import { getGitHubTokenFromRequest, getTagRangeData, parseRepositoryInput } from "@/lib/github";
-import { getRequestAccessToken } from "@/lib/lemonsqueezy";
-import { generateChangelogWithAI } from "@/lib/openai";
+import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
 
-interface GenerateRequestBody {
-  repository?: string;
-  fromTag?: string;
-  toTag?: string;
-}
+import { getSessionEmail, incrementUsage } from "@/lib/database";
+import { fetchPullRequestsAndCommitsBetweenTags } from "@/lib/github";
+import { generateReleaseNotes } from "@/lib/openai";
 
-export async function POST(request: NextRequest) {
-  const accessToken = getRequestAccessToken(request);
+type GenerateRequest = {
+  repoFullName?: string;
+  baseTag?: string;
+  headTag?: string;
+};
 
-  if (!accessToken) {
-    return NextResponse.json({ error: "Purchase required before generating release notes" }, { status: 402 });
-  }
+export async function POST(request: Request) {
+  const cookieStore = await cookies();
 
-  const snapshot = await getAccessSnapshot(accessToken);
-  if (!snapshot.active) {
+  const paidSession = cookieStore.get("paid_session")?.value;
+  const paidEmail = await getSessionEmail(paidSession);
+  if (!paidEmail) {
     return NextResponse.json(
       {
-        error: "Your credits or subscription are not active. Complete checkout to continue."
+        error: "Paid access required. Complete checkout and unlock using your purchase email."
       },
       { status: 402 }
     );
   }
 
-  const githubToken = getGitHubTokenFromRequest(request);
+  const githubToken = cookieStore.get("gh_token")?.value;
   if (!githubToken) {
-    return NextResponse.json({ error: "Connect GitHub before generating a changelog" }, { status: 401 });
+    return NextResponse.json({ error: "GitHub is not connected." }, { status: 401 });
   }
 
-  let body: GenerateRequestBody;
-  try {
-    body = (await request.json()) as GenerateRequestBody;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
+  const body = (await request.json().catch(() => ({}))) as GenerateRequest;
+  if (!body.repoFullName || !body.baseTag || !body.headTag) {
+    return NextResponse.json({ error: "repoFullName, baseTag, and headTag are required." }, { status: 400 });
   }
 
-  const repository = body.repository?.trim();
-  const fromTag = body.fromTag?.trim();
-  const toTag = body.toTag?.trim();
-
-  if (!repository || !fromTag || !toTag) {
-    return NextResponse.json({ error: "repository, fromTag, and toTag are required" }, { status: 400 });
+  if (body.baseTag === body.headTag) {
+    return NextResponse.json({ error: "Choose two different tags." }, { status: 400 });
   }
 
   try {
-    const { owner, repo } = parseRepositoryInput(repository);
-    const tagRangeData = await getTagRangeData({
-      authToken: githubToken,
-      owner,
-      repo,
-      fromTag,
-      toTag
-    });
+    const rangeData = await fetchPullRequestsAndCommitsBetweenTags(
+      githubToken,
+      body.repoFullName,
+      body.baseTag,
+      body.headTag
+    );
 
-    const aiResult = await generateChangelogWithAI(tagRangeData);
-    const consumption = await consumeGeneration(accessToken);
-
-    if (!consumption.allowed) {
-      return NextResponse.json({ error: "No remaining paid access available" }, { status: 402 });
-    }
-
-    const generation = await recordGeneration({
-      accessToken,
-      repository: `${owner}/${repo}`,
-      fromTag,
-      toTag,
-      markdown: aiResult.markdown,
-      sourcePrCount: tagRangeData.pullRequests.length,
-      sourceCommitCount: tagRangeData.commits.length
-    });
+    const markdown = await generateReleaseNotes(rangeData);
+    const usage = await incrementUsage(paidEmail);
 
     return NextResponse.json({
-      generation,
-      markdown: aiResult.markdown,
-      model: aiResult.model,
+      markdown,
       stats: {
-        pullRequests: tagRangeData.pullRequests.length,
-        commits: tagRangeData.commits.length,
-        compareUrl: tagRangeData.compareUrl
-      }
+        totalPullRequests: rangeData.totalPullRequests,
+        totalDirectCommits: rangeData.commits.length
+      },
+      usage
     });
   } catch (error) {
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Unable to generate changelog"
-      },
-      { status: 500 }
-    );
+    const message = error instanceof Error ? error.message : "Failed to generate release notes.";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
